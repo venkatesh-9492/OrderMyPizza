@@ -1,0 +1,130 @@
+package com.example.Pizza.controller;
+
+import com.example.Pizza.entity.Customer;
+import com.example.Pizza.entity.OrderItem;
+import com.example.Pizza.enums.OrderStatus;
+import com.example.Pizza.repository.CustomerRepository;
+import com.example.Pizza.repository.OrderItemRepository;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Controller
+public class OrderController {
+
+    @Autowired
+    private CustomerRepository customerRepo;
+
+    @Autowired
+    private OrderItemRepository orderRepo;
+
+    private static final Map<Integer, String> pizzaNames = new HashMap<>();
+    private static final Map<Integer, Double> pizzaPrices = new HashMap<>();
+    private static final double DEFAULT_PIZZA_PRICE = 199.0;
+
+    static {
+        pizzaNames.put(1, "Margherita");
+        pizzaNames.put(2, "Pepperoni");
+        pizzaNames.put(3, "Veggie Delight");
+
+        pizzaPrices.put(1, 199.0);
+        pizzaPrices.put(2, 249.0);
+        pizzaPrices.put(3, 329.0);
+    }
+
+    // Display order form
+    @GetMapping("/")
+    public String showOrderForm(Model model, @RequestParam(required = false) String error) {
+        model.addAttribute("pizzaNames", pizzaNames);
+        if (error != null) {
+            model.addAttribute("errorMessage", error);
+        }
+        return "form"; // form.html
+    }
+
+    // Handle order submission
+    @PostMapping("/submitOrder")
+    public String placeOrder(
+            @RequestParam String customerName,
+            @RequestParam String email,
+            @RequestParam String phone,
+            @RequestParam int pizzaId,
+            @RequestParam int quantity
+    ) {
+        // Basic input validation
+        if (quantity <= 0 || !pizzaNames.containsKey(pizzaId)) {
+            return "redirect:/?error=Invalid+order+details";
+        }
+
+        try {
+            // Save customer info
+            Customer customer = new Customer();
+            customer.setName(customerName);
+            customer.setEmail(email);
+            customer.setPhone(phone);
+            customerRepo.save(customer);
+
+            // Save order info
+            OrderItem order = new OrderItem();
+            order.setCustomer(customer);
+            order.setPizzaId(pizzaId);
+            order.setPizzaName(pizzaNames.get(pizzaId));
+            order.setQuantity(quantity);
+            order.setTotalPrice(quantity * pizzaPrices.getOrDefault(pizzaId, DEFAULT_PIZZA_PRICE));
+            order.setOrderStatus(OrderStatus.PENDING);
+
+            orderRepo.save(order);
+
+            return "redirect:/success";
+        } catch (Exception e) {
+            // Consider logging the exception (e.g., with SLF4J)
+            return "redirect:/?error=Unable+to+process+order";
+        }
+    }
+
+    // View paginated orders
+    @GetMapping("/orders")
+    public String viewOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            Model model
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<OrderItem> orderPage = orderRepo.findAll(pageable);
+
+        model.addAttribute("orders", orderPage.getContent());
+        model.addAttribute("currentPage", page);
+        model.addAttribute("totalPages", orderPage.getTotalPages());
+        model.addAttribute("totalItems", orderPage.getTotalElements());
+
+        return "orderList"; // orderList.html
+    }
+
+    // Success page
+    @GetMapping("/success")
+    public String successPage() {
+        return "success"; // success.html
+    }
+
+    // Check order status
+    @GetMapping("/orderStatus/{id}")
+    public String checkOrderStatus(@PathVariable int id, Model model) {
+        OrderItem order = orderRepo.findById(id).orElse(null);
+
+        if (order == null) {
+            model.addAttribute("error", "Order not found with ID: " + id);
+        } else {
+            model.addAttribute("order", order);
+        }
+
+        return "orderStatus"; // orderStatus.html
+    }
+}
